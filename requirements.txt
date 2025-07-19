@@ -1,2 +1,5 @@
-flask
-gunicorn
+Flask
+Flask_SQLAlchemy
+psycopg2-binary
+qrcode
+python-dotenv

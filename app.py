@@ -1,52 +1,52 @@
-from flask import Flask, request, redirect, render_template
-import sqlite3
-import string
-import random
-import os
+from flask import Flask, request, redirect, render_template, url_for, send_file
+from config import Config
+from models import db, URL
+import string, random, io, qrcode
+from sqlalchemy.exc import IntegrityError
 
 app = Flask(__name__)
-DB_NAME = 'urls.db'
+app.config.from_object(Config)
+db.init_app(app)
 
-# Crée la base de données si elle n'existe pas
-def init_db():
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS urls (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                short TEXT UNIQUE,
-                original TEXT NOT NULL
-            )
-        ''')
+with app.app_context():
+    db.create_all()
 
-def generate_short_id(length=6):
-    characters = string.ascii_letters + string.digits
-    return ''.join(random.choices(characters, k=length))
+def generate_code(length=6):
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
 @app.route('/', methods=['GET', 'POST'])
-def home():
+def index():
     if request.method == 'POST':
         original_url = request.form['original_url']
-        short_id = generate_short_id()
+        alias = request.form.get('custom_alias')
 
-        with sqlite3.connect(DB_NAME) as conn:
-            try:
-                conn.execute("INSERT INTO urls (short, original) VALUES (?, ?)", (short_id, original_url))
-                conn.commit()
-                short_url = request.host_url + short_id
-                return render_template('index.html', short_url=short_url)
-            except sqlite3.IntegrityError:
-                return "Erreur : ce code existe déjà."
+        short = alias if alias else generate_code()
+        new_url = URL(original=original_url, short=short)
+        db.session.add(new_url)
+
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return render_template('index.html', error="Alias déjà utilisé.")
+
+        short_url = request.host_url + short
+        qr = qrcode.make(short_url)
+        buffer = io.BytesIO()
+        qr.save(buffer, format='PNG')
+        qr_data = buffer.getvalue()
+
+        return render_template('index.html', short_url=short_url, qr=qr_data)
+
     return render_template('index.html')
 
-@app.route('/<short_id>')
-def redirect_to_original(short_id):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.execute("SELECT original FROM urls WHERE short = ?", (short_id,))
-        row = cursor.fetchone()
-        if row:
-            return redirect(row[0])
-        return "URL non trouvée", 404
+@app.route('/<short>')
+def redirect_to_url(short):
+    link = URL.query.filter_by(short=short).first_or_404()
+    link.clicks += 1
+    db.session.commit()
+    return redirect(link.original)
 
-if __name__ == '__main__':
-    init_db()
-    app.run(debug=True)
+@app.route('/static_qr.png')
+def static_qr():
+    return send_file(io.BytesIO(qr_data), mimetype='image/png')
