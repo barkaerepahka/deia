@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Réducteur d'URL</title>
+</head>
+<body>
+    <h1>Mon propre réducteur d'URL</h1>
+    <form method="POST">
+        <input type="url" name="original_url" placeholder="Colle ton URL ici" required style="width: 300px;" />
+        <button type="submit">Réduire</button>
+    </form>
+    {% if short_url %}
+        <p>URL raccourcie : <a href="{{ short_url }}" target="_blank">{{ short_url }}</a></p>
+    {% endif %}
+</body>
+</html>
